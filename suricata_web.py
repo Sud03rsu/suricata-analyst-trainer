@@ -2,6 +2,7 @@ import html
 import importlib.util
 import json
 import random
+import re
 from dataclasses import asdict, is_dataclass
 from datetime import datetime
 from pathlib import Path
@@ -2567,7 +2568,17 @@ def grade_lab_task(task, value):
         return ok, task.get("explain", "") + (("\n" + "\n".join(details)) if details else "")
     if task.get("type") == "rule":
         text = (value or "").lower()
-        missing = [term for term in task.get("required", []) if term.lower() not in text]
+        missing = []
+        for term in task.get("required", []):
+            term_l = term.lower()
+            if term_l == "sid":
+                if not re.search(r"\bsid\s*:\s*\d+", text):
+                    missing.append("sid:<number>")
+            elif term_l == "rev":
+                if not re.search(r"\brev\s*:\s*\d+", text):
+                    missing.append("rev:<number>")
+            elif term_l not in text:
+                missing.append(term)
         ok = not missing
         msg = task.get("explain", "")
         if missing:
@@ -2623,7 +2634,7 @@ def render_lab_question(q):
                 "Write the rule here",
                 key=key,
                 height=110,
-                placeholder='alert http $EXTERNAL_NET any -> $HOME_NET any (msg:"..."; flow:established,to_server; http.uri; content:"..."; sid:930000; rev:1;)',
+                placeholder='alert <protocol> <src_net> any -> <dst_net> any (msg:"..."; <buffer>; content:"..."; sid:<number>; rev:<number>;)',
             )
 
     col_submit, col_hint, col_reveal, col_next = st.columns(4)
@@ -2799,6 +2810,14 @@ def guided_rule_template(protocol="http", src="$EXTERNAL_NET", sport="any", dst=
         f'(msg:"Describe what this detects"; <buffer>; content:"<thing to match>"; sid:1000001; rev:1;)'
     )
 
+
+def blank_rule_placeholder(protocol="http"):
+    protocol = str(protocol or "http").strip().lower()
+    return (
+        f'alert {protocol} <src_net> any -> <dst_net> any '
+        f'(msg:"..."; <buffer>; content:"..."; sid:<number>; rev:<number>;)'
+    )
+
 def render_guided_rule_builder(q):
     """Scaffold rule-writing questions so beginner analysts are not forced into a blank-text full rule immediately."""
     st.markdown("### Guided Rule Construction")
@@ -2866,7 +2885,7 @@ def render_guided_rule_builder(q):
         "Write the final rule here. It does not have to be perfect; partial credit is shown below.",
         key=step5_key,
         height=120,
-        placeholder=example,
+        placeholder=blank_rule_placeholder(proto),
     )
 
     col_submit, col_reveal, col_next = st.columns(3)
@@ -2886,7 +2905,7 @@ def render_guided_rule_builder(q):
                 checks.append((any(str(t).lower() in selected_content for t in content_terms), "Relevant match content/behavior selected."))
             text = (final_rule or "").lower()
             checks.append(("alert" in text and proto in text, "Final rule includes action and protocol."))
-            checks.append(("sid" in text and "rev" in text, "Final rule includes sid and rev."))
+            checks.append((bool(re.search(r"\bsid\s*:\s*\d+", text)) and bool(re.search(r"\brev\s*:\s*\d+", text)), "Final rule includes sid:<number> and rev:<number>."))
             if buffers:
                 checks.append((any(b.lower() in text for b in buffers), "Final rule uses the expected buffer/keyword."))
             if content_terms:
@@ -3019,13 +3038,23 @@ def render_learning_paths():
     st.markdown("### Progressive paths")
     cols = st.columns(3)
     paths = [
-        ("Beginner Analyst", "Variables → Rule Building → Buffers", "Best for learning how to read rules and understand alert scope."),
-        ("SOC Operator", "Rule Reading → Tuning → Remediation", "Best for analysts who triage alerts and need to explain why a rule fired."),
-        ("Detection Engineer", "Repair → Advanced Tuning → Capstones", "Best for building, tuning, and defending production-style detections."),
+        ("Beginner Analyst", "Variables -> Rule Building -> Buffers", "Best for learning how to read rules and understand alert scope.", "Lessons", "Network Variables", "Beginner - Variables & Structure"),
+        ("SOC Operator", "Rule Reading -> Tuning -> Remediation", "Best for analysts who triage alerts and need to explain why a rule fired.", "Train", None, "Rule Reading"),
+        ("Detection Engineer", "Repair -> Advanced Tuning -> Capstones", "Best for building, tuning, and defending production-style detections.", "Train", None, "Rule Repair"),
     ]
-    for col, (title, path, body) in zip(cols, paths):
+    for col, (title, path, body, target_view, target_lesson, target_module) in zip(cols, paths):
         with col:
             st.markdown(f'<div class="section-card"><div class="lesson-card-title">{html.escape(title)}</div><div class="lesson-card-body"><strong>{html.escape(path)}</strong><br>{html.escape(body)}</div></div>', unsafe_allow_html=True)
+            if st.button(f"Start {title}", key=f"path_{title}", use_container_width=True):
+                if target_lesson:
+                    st.session_state.selected_lesson = target_lesson
+                    st.session_state._pending_lesson_picker = target_lesson
+                st.session_state.bank_name = target_module
+                st.session_state.view = target_view
+                st.session_state._pending_module_picker = target_module
+                st.session_state._pending_view_picker = target_view
+                reset_current_question()
+                rerun_top()
 
 def render_rule_breakdown():
     render_rule_box("""alert http $EXTERNAL_NET any -> $HOME_NET any (msg:"Example"; http.uri; content:"/login"; sid:100001; rev:1;)
