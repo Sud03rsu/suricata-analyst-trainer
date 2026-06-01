@@ -1857,6 +1857,141 @@ INVESTIGATION_CAPSTONES = TRAFFIC_DRIVEN_LABS
 
 CORE_QUESTIONS = list(getattr(trainer, "ALL_QUESTIONS", []))
 
+EXPANDED_CURRICULUM_QUESTIONS = [
+    Question(
+        id="cur_http_001", category="HTTP Field Fundamentals", mode="read", difficulty=1,
+        rule='alert http $EXTERNAL_NET any -> $HOME_NET any (msg:"POST to login"; flow:established,to_server; http.method; content:"POST"; http.uri; content:"/login"; sid:960001; rev:1;)',
+        prompt="Which HTTP fields does this rule inspect, and why is that better than a raw content match?",
+        answer_points=["http.method", "POST", "http.uri", "/login", "scoped fields", "less noisy than raw content"],
+        required_terms=[],
+        accepted_terms=["method", "uri", "post", "login", "scoped", "field", "buffer"],
+        hints=["Read the options left to right.", "POST is the method. /login is the URI/path.", "The rule avoids looking for login anywhere in the payload."],
+        explanation="The rule inspects http.method for POST and http.uri for /login. That is more useful than raw content because the match is tied to specific request fields.",
+        skills=["http", "buffers", "rule_reading"],
+    ),
+    Question(
+        id="cur_http_002", category="HTTP Field Fundamentals", mode="repair", difficulty=2,
+        rule='alert http any any -> any any (msg:"API key maybe"; content:"token"; sid:960002; rev:1;)',
+        prompt="Repair this broad token rule so it inspects a more defensible HTTP field and has clearer analyst context.",
+        answer_points=["alert http", "http.header", "token", "msg", "sid", "rev", "direction"],
+        required_terms=["alert", "http", "http.header", "token", "sid", "rev", "msg"],
+        accepted_terms=["header", "x-api-key", "authorization", "token", "scoped"],
+        hints=["If the token is expected in headers, do not search the whole payload.", "Add a useful msg.", "SID can be any numeric value."],
+        explanation='One acceptable repair: alert http $HOME_NET any -> $EXTERNAL_NET any (msg:"Outbound HTTP header token observed"; flow:established,to_server; http.header; content:"token"; nocase; sid:960002; rev:2;). The SID number is not the point; field scoping is.',
+        skills=["http", "repair", "headers"],
+    ),
+    Question(
+        id="cur_dns_001", category="DNS Detection Fundamentals", mode="read", difficulty=1,
+        rule='alert dns $HOME_NET any -> $EXTERNAL_NET any (msg:"DNS query for suspicious domain"; dns.query; content:"bad-domain.example"; nocase; sid:960003; rev:1;)',
+        prompt="What traffic behavior does this DNS rule describe?",
+        answer_points=["internal host", "outbound dns query", "dns.query", "bad-domain.example"],
+        required_terms=[],
+        accepted_terms=["internal", "home", "query", "dns", "bad-domain", "outbound"],
+        hints=["Look at the source side of the arrow.", "dns.query means the queried name.", "Think client asking for a domain."],
+        explanation="The rule describes a protected/internal host making an outbound DNS query where the queried name contains bad-domain.example.",
+        skills=["dns", "direction", "rule_reading"],
+    ),
+    Question(
+        id="cur_dns_002", category="DNS Detection Fundamentals", mode="optimize", difficulty=3,
+        rule='alert dns any any -> any any (msg:"Long DNS label"; dns.query; pcre:"/[a-z0-9]{20,}\\./i"; sid:960004; rev:1;)',
+        prompt="How would you tune this long-label DNS rule before treating it as possible tunneling?",
+        answer_points=["track by source", "rate", "count", "seconds", "baseline", "allowlist after validation", "entropy", "known services"],
+        required_terms=[],
+        accepted_terms=["rate", "threshold", "detection_filter", "baseline", "allowlist", "entropy", "count", "seconds"],
+        hints=["One long label can be normal.", "Tunneling is often behavioral over time.", "Known CDNs and tracking domains can create long labels."],
+        explanation="A stronger approach considers repeated behavior by source, entropy/label count, known-good domains, and rate logic such as detection_filter. Do not suppress all long-label DNS blindly.",
+        skills=["dns", "tuning", "thresholding"],
+    ),
+    Question(
+        id="cur_tls_001", category="TLS/SNI Fundamentals", mode="repair", difficulty=2,
+        rule='alert tls $HOME_NET any -> $EXTERNAL_NET any (msg:"Suspicious hostname"; http.host; content:"evil.example"; sid:960005; rev:1;)',
+        prompt="This rule is intended to inspect TLS hostname evidence. What needs to be repaired?",
+        answer_points=["tls.sni", "not http.host", "TLS ClientHello", "hostname", "sid", "rev"],
+        required_terms=["tls.sni", "sid", "rev"],
+        accepted_terms=["sni", "tls", "clienthello", "hostname", "http.host wrong"],
+        hints=["HTTP Host and TLS SNI are different fields.", "The protocol is TLS.", "Use the TLS handshake hostname buffer."],
+        explanation='A repaired rule should use tls.sni instead of http.host, for example: alert tls $HOME_NET any -> $EXTERNAL_NET any (msg:"Suspicious TLS SNI"; tls.sni; content:"evil.example"; sid:960005; rev:2;).',
+        skills=["tls", "sni", "repair"],
+    ),
+    Question(
+        id="cur_tls_002", category="TLS/SNI Fundamentals", mode="optimize", difficulty=3,
+        rule='alert tls $HOME_NET any -> $EXTERNAL_NET any (msg:"Suspicious CDN"; tls.sni; content:"cdn"; nocase; sid:960006; rev:1;)',
+        prompt="Why is this SNI rule likely noisy, and how would you make it more useful?",
+        answer_points=["cdn is generic", "exact hostname", "controlled suffix", "baseline", "newly observed", "asset role"],
+        required_terms=[],
+        accepted_terms=["generic", "exact", "hostname", "suffix", "baseline", "asset", "new"],
+        hints=["Think about how common CDN strings are.", "A good SNI rule usually needs a specific domain or context.", "Asset role and first-seen data can matter."],
+        explanation="The string cdn is too generic for most environments. A better detection uses a specific suspicious FQDN or controlled suffix, and triage should consider first-seen status, asset role, and known-good business services.",
+        skills=["tls", "sni", "tuning"],
+    ),
+    Question(
+        id="cur_flow_001", category="Flow and Direction", mode="read", difficulty=2,
+        rule='alert http $EXTERNAL_NET any -> $HOME_NET any (msg:"Inbound command string"; flow:established,to_server; http.uri; content:"cmd.exe"; nocase; sid:960007; rev:1;)',
+        prompt="What does flow:established,to_server add to this rule?",
+        answer_points=["established session", "client to server", "request direction", "reduces wrong-side matching"],
+        required_terms=[],
+        accepted_terms=["established", "to_server", "client", "server", "request", "direction"],
+        hints=["flow is about session state and direction within the connection.", "to_server means client/request side.", "It helps avoid matching server responses."],
+        explanation="flow:established,to_server says the rule should inspect established client-to-server traffic, which is usually the HTTP request side for URI checks.",
+        skills=["flow", "direction", "http"],
+    ),
+    Question(
+        id="cur_flow_002", category="Flow and Direction", mode="repair", difficulty=2,
+        rule='alert http any any -> any any (msg:"Outbound curl"; http.user_agent; content:"curl"; sid:960008; rev:1;)',
+        prompt="Repair this rule so it better represents internal hosts making outbound HTTP requests with curl.",
+        answer_points=["$HOME_NET", "$EXTERNAL_NET", "flow:established,to_server", "http.user_agent", "curl", "nocase", "sid", "rev"],
+        required_terms=["alert", "http", "$HOME_NET", "$EXTERNAL_NET", "flow:established,to_server", "http.user_agent", "curl", "sid", "rev"],
+        accepted_terms=["outbound", "home_net", "external_net", "user_agent"],
+        hints=["Outbound means HOME_NET should be the source.", "User-Agent is request-side.", "nocase is usually helpful for tool strings."],
+        explanation='One acceptable repair: alert http $HOME_NET any -> $EXTERNAL_NET any (msg:"Outbound curl User-Agent"; flow:established,to_server; http.user_agent; content:"curl"; nocase; sid:960008; rev:2;).',
+        skills=["flow", "direction", "repair"],
+    ),
+    Question(
+        id="cur_triage_001", category="SOC Alert Triage", mode="capstone", difficulty=2,
+        rule='alert http $EXTERNAL_NET any -> $HOME_NET any (msg:"Possible cmd.exe in URI"; flow:established,to_server; http.uri; content:"cmd.exe"; nocase; sid:960009; rev:1;)',
+        prompt="The alert fired once against a public web server. What should a new analyst check before escalating or suppressing it?",
+        answer_points=["source", "target", "URI", "response status", "web logs", "scanner context", "follow-on activity", "EDR"],
+        required_terms=[],
+        accepted_terms=["source", "response", "logs", "scanner", "follow", "edr", "target", "status"],
+        hints=["An alert is a starting point, not a verdict.", "Check whether the server responded successfully.", "Look for repeated or follow-on behavior."],
+        explanation="A good triage answer validates source and target, URI and response status, web/server logs, known scanner windows, and follow-on activity such as process execution or outbound callbacks.",
+        skills=["triage", "http", "workflow"],
+    ),
+    Question(
+        id="cur_triage_002", category="SOC Alert Triage", mode="capstone", difficulty=3,
+        rule='alert dns $HOME_NET any -> $EXTERNAL_NET any (msg:"Suspicious DNS query"; dns.query; content:"exfil.example.net"; sid:960010; rev:1;)',
+        prompt="What pivots would help determine whether this DNS alert is meaningful?",
+        answer_points=["host", "process", "frequency", "dns logs", "proxy logs", "domain reputation", "subsequent http", "asset role"],
+        required_terms=[],
+        accepted_terms=["host", "process", "frequency", "proxy", "reputation", "role", "dns", "subsequent"],
+        hints=["DNS alone may not show impact.", "Find the process or host context if available.", "Look for HTTP/TLS traffic after the lookup."],
+        explanation="Useful pivots include source host and asset role, query frequency, process telemetry, DNS/proxy logs, reputation/first-seen context, and connections that happened after the lookup.",
+        skills=["triage", "dns", "workflow"],
+    ),
+    Question(
+        id="cur_prod_001", category="Production Detection Engineering", mode="optimize", difficulty=4,
+        rule='alert http $HOME_NET any -> $EXTERNAL_NET any (msg:"Any PowerShell over HTTP"; http.uri; content:"powershell"; nocase; sid:960011; rev:1;)',
+        prompt="How would an experienced analyst improve this for production without hiding true malicious behavior?",
+        answer_points=["encodedcommand", "-enc", "downloadstring", "iex", "request body", "user-agent", "flow", "multiple indicators", "triage context"],
+        required_terms=[],
+        accepted_terms=["encoded", "-enc", "downloadstring", "iex", "body", "multiple", "flow", "user-agent"],
+        hints=["A single keyword can be noisy.", "PowerShell download cradles often have multiple indicators.", "Think URI and request body, not only raw content."],
+        explanation="A production-minded answer combines scoped HTTP fields with stronger indicators such as -enc/EncodedCommand, IEX, DownloadString, request-body checks where appropriate, and context rather than suppressing all PowerShell strings.",
+        skills=["advanced", "http", "tuning"],
+    ),
+    Question(
+        id="cur_prod_002", category="Production Detection Engineering", mode="optimize", difficulty=4,
+        rule='alert tcp any any -> any any (msg:"Possible scan"; flags:S; sid:960012; rev:1;)',
+        prompt="What makes a SYN scan detection operationally stronger than alerting on every SYN?",
+        answer_points=["detection_filter", "track by_src", "count", "seconds", "destination spread", "ports", "baseline", "asset context"],
+        required_terms=[],
+        accepted_terms=["detection_filter", "track", "count", "seconds", "ports", "spread", "baseline", "rate"],
+        hints=["A single SYN is normal.", "Scan behavior is about repetition and spread.", "Rate logic makes the alert more meaningful."],
+        explanation="Operational scan logic usually tracks repeated SYNs by source over a time window, considers destination/port spread, and avoids alerting on every normal connection attempt.",
+        skills=["advanced", "thresholding", "tuning"],
+    ),
+]
+
 
 # ------------------------------------------------------------
 # Real PCAP evidence labs - IceMaiden / Malware Traffic Analysis exercise
@@ -2125,14 +2260,20 @@ INVESTIGATION_CAPSTONES = REAL_PCAP_LABS
 ADVANCED_SCENARIOS = [q for q in ADVANCED_SCENARIOS if not str(getattr(q, "mode", "")).endswith("lab")]
 
 BASE_BANKS = {
-    "Adaptive Mixed": CORE_QUESTIONS + SUPPLEMENTAL_SCENARIOS + ADVANCED_SCENARIOS + TRAFFIC_DRIVEN_LABS,
+    "Adaptive Mixed": CORE_QUESTIONS + SUPPLEMENTAL_SCENARIOS + EXPANDED_CURRICULUM_QUESTIONS + ADVANCED_SCENARIOS + TRAFFIC_DRIVEN_LABS,
     "Beginner - Variables & Structure": list(getattr(trainer, "VARIABLES_AND_STRUCTURE", [])) + [q for q in SUPPLEMENTAL_SCENARIOS if "Variables" in q.category or "Direction" in q.category],
-    "Rule Reading": list(getattr(trainer, "RULE_READING", [])) + [q for q in SUPPLEMENTAL_SCENARIOS if q.mode == "read"],
-    "Optimization / Tuning": list(getattr(trainer, "OPTIMIZATION", [])) + [q for q in SUPPLEMENTAL_SCENARIOS if q.mode == "optimize"],
+    "HTTP Field Fundamentals": [q for q in EXPANDED_CURRICULUM_QUESTIONS if q.category == "HTTP Field Fundamentals"],
+    "DNS Detection Fundamentals": [q for q in EXPANDED_CURRICULUM_QUESTIONS if q.category == "DNS Detection Fundamentals"],
+    "TLS/SNI Fundamentals": [q for q in EXPANDED_CURRICULUM_QUESTIONS if q.category == "TLS/SNI Fundamentals"],
+    "Flow and Direction": [q for q in EXPANDED_CURRICULUM_QUESTIONS if q.category == "Flow and Direction"],
+    "SOC Alert Triage": [q for q in EXPANDED_CURRICULUM_QUESTIONS if q.category == "SOC Alert Triage"],
+    "Production Detection Engineering": [q for q in EXPANDED_CURRICULUM_QUESTIONS if q.category == "Production Detection Engineering"],
+    "Rule Reading": list(getattr(trainer, "RULE_READING", [])) + [q for q in SUPPLEMENTAL_SCENARIOS if q.mode == "read"] + [q for q in EXPANDED_CURRICULUM_QUESTIONS if q.mode == "read"],
+    "Optimization / Tuning": list(getattr(trainer, "OPTIMIZATION", [])) + [q for q in SUPPLEMENTAL_SCENARIOS if q.mode == "optimize"] + [q for q in EXPANDED_CURRICULUM_QUESTIONS if q.mode == "optimize"],
     "Rule Writing": list(getattr(trainer, "WRITING", [])) + [q for q in SUPPLEMENTAL_SCENARIOS if q.mode == "write"],
-    "Rule Repair": list(getattr(trainer, "REPAIR", [])) + [q for q in SUPPLEMENTAL_SCENARIOS if q.mode == "repair"],
-    "Scenario Practice - Analyst Decisions": SUPPLEMENTAL_SCENARIOS,
-    "Advanced - Realistic Tuning & Repair": ADVANCED_SCENARIOS,
+    "Rule Repair": list(getattr(trainer, "REPAIR", [])) + [q for q in SUPPLEMENTAL_SCENARIOS if q.mode == "repair"] + [q for q in EXPANDED_CURRICULUM_QUESTIONS if q.mode == "repair"],
+    "Scenario Practice - Analyst Decisions": SUPPLEMENTAL_SCENARIOS + [q for q in EXPANDED_CURRICULUM_QUESTIONS if q.mode == "capstone"],
+    "Advanced - Realistic Tuning & Repair": ADVANCED_SCENARIOS + [q for q in EXPANDED_CURRICULUM_QUESTIONS if q.difficulty >= 4],
     "Investigation Capstones": INVESTIGATION_CAPSTONES,
     "Traffic Scenario Labs": TRAFFIC_DRIVEN_LABS,
 }
@@ -2141,7 +2282,13 @@ LESSONS = {
     "Network Variables": getattr(trainer, "NETWORK_VARIABLES_LESSON", ""),
     "Rule Building": getattr(trainer, "RULE_BUILDING_LESSON", ""),
     "Buffers": getattr(trainer, "BUFFER_LESSON", ""),
+    "HTTP Fields": "",
+    "DNS Detection": "",
+    "TLS and SNI": "",
+    "Flow and Direction": "",
     "Tuning": getattr(trainer, "TUNING_LESSON", ""),
+    "SOC Triage Workflow": "",
+    "Production Detection": "",
 }
 
 LESSON_META = {
@@ -2230,6 +2377,98 @@ LESSON_META = {
             },
         ],
     },
+    "HTTP Fields": {
+        "objective": "Map HTTP evidence to Suricata fields such as method, URI, host, headers, user-agent, and request body.",
+        "why": "Most web detections become clearer when analysts can point to the exact HTTP field that matched.",
+        "practice_module": "HTTP Field Fundamentals",
+        "knowledge_terms": ["http.method", "http.uri", "http.host", "http.user_agent", "http.header", "http.request_body"],
+        "takeaways": [
+            "Use http.method for request verbs such as GET and POST.",
+            "Use http.uri for paths and query strings.",
+            "Use http.host for the HTTP Host header, not TLS SNI.",
+            "Use http.request_body when the suspicious value is submitted in form/body data.",
+        ],
+        "analyst_note": "When triaging HTTP alerts, reconstruct the request: method, host, URI, headers, body, response status, and server role.",
+        "bad_good": [
+            {
+                "weak_label": "Raw token search",
+                "weak_code": 'content:"token";',
+                "weak_reason": "The string could appear in many places and may not explain which part of the request mattered.",
+                "better_label": "Header-scoped token search",
+                "better_code": 'http.header; content:"token"; nocase;',
+                "better_reason": "If the detection intent is API/authorization headers, scope the match to HTTP headers.",
+            },
+        ],
+    },
+    "DNS Detection": {
+        "objective": "Understand DNS query detections, long-label behavior, and DNS-to-HTTP pivoting.",
+        "why": "DNS alerts often require context. A queried name can be suspicious, benign, or only meaningful when repeated over time.",
+        "practice_module": "DNS Detection Fundamentals",
+        "knowledge_terms": ["dns.query", "domain", "long label", "baseline", "pivot"],
+        "takeaways": [
+            "dns.query is the queried domain name.",
+            "One odd DNS query is often weaker than repeated behavior from one host.",
+            "Long labels can indicate tunneling but also appear in benign services.",
+            "Pivot from DNS to HTTP/TLS sessions to see what happened after resolution.",
+        ],
+        "analyst_note": "A good DNS triage note includes source host, queried name, frequency, reputation/first-seen context, and follow-on connections.",
+        "bad_good": [
+            {
+                "weak_label": "Raw DNS string",
+                "weak_code": 'content:"wensa";',
+                "weak_reason": "Raw content does not say whether the string appeared in the query name or somewhere else.",
+                "better_label": "Query-scoped domain",
+                "better_code": 'dns.query; content:"wensa.at"; nocase;',
+                "better_reason": "This ties the match to the domain being queried.",
+            },
+        ],
+    },
+    "TLS and SNI": {
+        "objective": "Distinguish TLS SNI from HTTP Host and tune hostname detections safely.",
+        "why": "Analysts often confuse HTTP hostnames and TLS SNI. That confusion causes broken rules and misleading triage.",
+        "practice_module": "TLS/SNI Fundamentals",
+        "knowledge_terms": ["tls.sni", "http.host", "ClientHello", "hostname", "baseline"],
+        "takeaways": [
+            "tls.sni is visible in the TLS ClientHello when SNI is present.",
+            "http.host is an HTTP header and is not the same as TLS SNI.",
+            "Generic SNI fragments such as cdn or login are usually noisy.",
+            "Useful SNI detections often need exact hostnames, suffixes, or enrichment context.",
+        ],
+        "analyst_note": "For TLS alerts, validate whether the hostname is exact, newly observed, known-good, and consistent with the source asset role.",
+        "bad_good": [
+            {
+                "weak_label": "Wrong field",
+                "weak_code": 'alert tls any any -> any any (http.host; content:"evil.example"; sid:1; rev:1;)',
+                "weak_reason": "A TLS rule should not use the HTTP Host buffer.",
+                "better_label": "TLS SNI field",
+                "better_code": 'alert tls any any -> any any (tls.sni; content:"evil.example"; sid:1; rev:1;)',
+                "better_reason": "This matches the hostname in the TLS handshake.",
+            },
+        ],
+    },
+    "Flow and Direction": {
+        "objective": "Use flow, network variables, and direction to distinguish requests, responses, inbound, and outbound behavior.",
+        "why": "Many noisy rules are technically valid but match the wrong side of a connection or the wrong traffic direction.",
+        "practice_module": "Flow and Direction",
+        "knowledge_terms": ["flow:established,to_server", "$HOME_NET", "$EXTERNAL_NET", "request", "response"],
+        "takeaways": [
+            "The rule header describes source and destination.",
+            "flow:established,to_server usually means established client-to-server traffic.",
+            "HTTP URI and method checks normally belong on the request side.",
+            "Outbound tool detections usually place $HOME_NET on the source side.",
+        ],
+        "analyst_note": "When a rule fires unexpectedly, ask whether it matched the request side, response side, inbound path, or outbound path.",
+        "bad_good": [
+            {
+                "weak_label": "Directionless tool string",
+                "weak_code": 'alert http any any -> any any (http.user_agent; content:"curl"; sid:1; rev:1;)',
+                "weak_reason": "This does not say whether the tool is internal, external, inbound, or outbound.",
+                "better_label": "Outbound internal tool use",
+                "better_code": 'alert http $HOME_NET any -> $EXTERNAL_NET any (flow:established,to_server; http.user_agent; content:"curl"; sid:1; rev:1;)',
+                "better_reason": "This describes protected hosts making outbound HTTP requests with curl.",
+            },
+        ],
+    },
     "Tuning": {
         "objective": "Reduce false positives while preserving detection value.",
         "why": "Tuning is where analysts turn signatures into useful operational detections instead of alert floods. The goal is not fewer alerts at all costs; the goal is better signal.",
@@ -2258,6 +2497,52 @@ LESSON_META = {
                 "better_label": "Specific hostname or controlled suffix",
                 "better_code": 'tls.sni; content:"suspicious-example.com"; endswith; nocase; ',
                 "better_reason": "Specific hostnames, controlled suffixes, or known-bad indicators are easier to justify and tune.",
+            },
+        ],
+    },
+    "SOC Triage Workflow": {
+        "objective": "Turn an alert into an evidence-backed analyst decision.",
+        "why": "Rules do not investigate incidents by themselves. Analysts need repeatable pivots to validate, escalate, tune, or close alerts.",
+        "practice_module": "SOC Alert Triage",
+        "knowledge_terms": ["source", "destination", "response", "pivot", "EDR", "proxy", "DNS"],
+        "takeaways": [
+            "Start with the alert evidence: source, destination, matched field, and timestamp.",
+            "Check response status/content before assuming exploitation.",
+            "Pivot to proxy, DNS, web server, EDR, and authentication logs when relevant.",
+            "Document why the alert is true positive, false positive, benign testing, or inconclusive.",
+        ],
+        "analyst_note": "A good junior analyst answer does not need to be dramatic; it needs to be evidence-backed and clear about what remains unknown.",
+        "bad_good": [
+            {
+                "weak_label": "Jump straight to conclusion",
+                "weak_code": "cmd.exe alert fired, therefore compromised.",
+                "weak_reason": "The alert is important, but it does not prove impact by itself.",
+                "better_label": "Evidence-backed triage",
+                "better_code": "Validate URI, response, source reputation, server logs, EDR process activity, and follow-on outbound connections.",
+                "better_reason": "This separates suspicious traffic from confirmed compromise.",
+            },
+        ],
+    },
+    "Production Detection": {
+        "objective": "Think like a detection engineer: preserve intent, reduce noise, and understand operational tradeoffs.",
+        "why": "Experienced analysts need to know when a rule is too broad, too expensive, too brittle, or missing context.",
+        "practice_module": "Production Detection Engineering",
+        "knowledge_terms": ["detection_filter", "threshold", "allowlist", "baseline", "performance", "coverage"],
+        "takeaways": [
+            "Production detections should have a clear threat behavior and a triage path.",
+            "Thresholding helps when single events are normal but repeated behavior is suspicious.",
+            "Allowlists reduce noise but can hide attacker use of trusted services.",
+            "Performance and maintainability matter when rules run at scale.",
+        ],
+        "analyst_note": "A mature tuning recommendation explains what signal is preserved, what noise is reduced, and what risk remains.",
+        "bad_good": [
+            {
+                "weak_label": "Suppress the noisy alert",
+                "weak_code": "Disable because there are too many hits.",
+                "weak_reason": "This may hide true positives and does not explain the underlying behavior.",
+                "better_label": "Tune with intent",
+                "better_code": "Scope fields, add direction, require stronger indicators, threshold repeated behavior, and allowlist only after validation.",
+                "better_reason": "This reduces noise while preserving detection value.",
             },
         ],
     },
@@ -3038,9 +3323,9 @@ def render_learning_paths():
     st.markdown("### Progressive paths")
     cols = st.columns(3)
     paths = [
-        ("Beginner Analyst", "Variables -> Rule Building -> Buffers", "Best for learning how to read rules and understand alert scope.", "Lessons", "Network Variables", "Beginner - Variables & Structure"),
-        ("SOC Operator", "Rule Reading -> Tuning -> Remediation", "Best for analysts who triage alerts and need to explain why a rule fired.", "Train", None, "Rule Reading"),
-        ("Detection Engineer", "Repair -> Advanced Tuning -> Capstones", "Best for building, tuning, and defending production-style detections.", "Train", None, "Rule Repair"),
+        ("Beginner Analyst", "Variables -> HTTP Fields -> Buffers", "Best for learning how to read rules and understand alert scope.", "Lessons", "Network Variables", "Beginner - Variables & Structure"),
+        ("SOC Operator", "Flow -> Triage -> Remediation", "Best for analysts who triage alerts and need to explain why a rule fired.", "Lessons", "SOC Triage Workflow", "SOC Alert Triage"),
+        ("Detection Engineer", "DNS/TLS -> Tuning -> Production", "Best for building, tuning, and defending production-style detections.", "Lessons", "Production Detection", "Production Detection Engineering"),
     ]
     for col, (title, path, body, target_view, target_lesson, target_module) in zip(cols, paths):
         with col:
@@ -3203,6 +3488,100 @@ http.request_body  -> username=jsmith&password=Summer2026!""", label="How Surica
         st.write("4. During triage, confirm whether the alert matched the field you expected.")
         return
 
+    if lesson_name == "HTTP Fields":
+        st.markdown("#### What this lesson teaches")
+        st.write("HTTP detections are strongest when the rule matches the exact request field that supports the detection idea.")
+        st.markdown("#### HTTP request anatomy")
+        render_pcap_box("""POST /api/v1/login?debug=true HTTP/1.1
+Host: portal.example.internal
+User-Agent: curl/8.0
+Authorization: Bearer abc123
+Content-Type: application/x-www-form-urlencoded
+
+username=jsmith&password=Summer2026!""", label="HTTP request fields")
+        render_lesson_code("""http.method        -> POST
+http.uri           -> /api/v1/login?debug=true
+http.host          -> portal.example.internal
+http.user_agent    -> curl/8.0
+http.header        -> Authorization / Content-Type headers
+http.request_body  -> username=jsmith&password=...""", label="Field-to-buffer mapping")
+        st.markdown("#### Bad vs better")
+        render_lesson_code('alert http any any -> any any (content:"token"; sid:1; rev:1;)', label="Raw payload match")
+        render_lesson_code('alert http $HOME_NET any -> $EXTERNAL_NET any (msg:"HTTP token header observed"; flow:established,to_server; http.header; content:"token"; nocase; sid:100101; rev:1;)', label="Header-scoped match")
+        st.markdown("#### Analyst workflow")
+        st.write("1. Reconstruct the request: method, URI, host, headers, body, response.")
+        st.write("2. Choose the buffer that maps to the evidence.")
+        st.write("3. Avoid matching strings globally when a field-specific buffer exists.")
+        st.write("4. During triage, include the exact field that matched in your notes.")
+        return
+
+    if lesson_name == "DNS Detection":
+        st.markdown("#### What this lesson teaches")
+        st.write("DNS rules work best when analysts separate a single suspicious query from repeated or contextual behavior.")
+        st.markdown("#### DNS evidence")
+        render_pcap_box("""DNS query:
+  src_ip: 10.44.12.33
+  resolver: 10.44.0.10
+  qname: q9x4p2z8n1a7.long-subdomain.example.net
+  qtype: A
+
+Follow-on traffic:
+  10.44.12.33 -> 198.51.100.80:443 within 3 seconds""", label="DNS-to-network pivot")
+        render_lesson_code('alert dns $HOME_NET any -> $EXTERNAL_NET any (msg:"Suspicious DNS query"; dns.query; content:"example.net"; sid:100201; rev:1;)', label="DNS query scoping")
+        st.markdown("#### Tuning thought process")
+        st.write("One long label can be normal. Stronger evidence includes repeated queries, unusual entropy, rare domains, suspicious follow-on HTTP/TLS, and source host context.")
+        render_lesson_code('detection_filter:track by_src, count 20, seconds 60;', label="Behavioral threshold idea")
+        st.markdown("#### Analyst workflow")
+        st.write("1. Identify the querying host and domain.")
+        st.write("2. Check frequency, first-seen status, domain reputation, and business context.")
+        st.write("3. Pivot to HTTP/TLS/proxy logs after the lookup.")
+        st.write("4. Tune allowlists only after validating known-good services.")
+        return
+
+    if lesson_name == "TLS and SNI":
+        st.markdown("#### What this lesson teaches")
+        st.write("TLS SNI and HTTP Host are different fields. Mixing them up creates broken or misleading detections.")
+        st.markdown("#### TLS hostname evidence")
+        render_pcap_box("""TLS ClientHello:
+  src_ip: 10.44.12.33
+  dst_ip: 203.0.113.77
+  tls.sni: cdn-update-sync.example.bad
+
+Important distinction:
+  tls.sni appears during the TLS handshake.
+  http.host appears inside HTTP traffic.""", label="TLS SNI context")
+        render_lesson_code('alert tls $HOME_NET any -> $EXTERNAL_NET any (msg:"Suspicious TLS SNI"; tls.sni; content:"cdn-update-sync.example.bad"; nocase; sid:100301; rev:1;)', label="SNI-scoped rule")
+        st.markdown("#### Noisy vs useful")
+        st.write("Matching `cdn` or `login` in SNI is usually noisy. Exact suspicious hostnames, controlled suffixes, first-seen enrichment, and asset role make SNI detections more defensible.")
+        st.markdown("#### Analyst workflow")
+        st.write("1. Confirm the hostname is in `tls.sni`, not `http.host`.")
+        st.write("2. Check if the domain is exact, newly observed, rare, or known-good.")
+        st.write("3. Compare the destination to the source asset role.")
+        st.write("4. Pivot to DNS, proxy, and endpoint telemetry if the connection is suspicious.")
+        return
+
+    if lesson_name == "Flow and Direction":
+        st.markdown("#### What this lesson teaches")
+        st.write("Direction decides who is talking to whom. Flow helps decide which side of the session should be inspected.")
+        st.markdown("#### Request-side example")
+        render_pcap_box("""HTTP request:
+  client: 203.0.113.45:49221
+  server: 10.25.8.14:80
+  request: GET /cmd.exe HTTP/1.1
+
+Rule intent:
+  external client -> protected web server
+  inspect the client-to-server request URI""", label="Direction and flow evidence")
+        render_lesson_code('alert http $EXTERNAL_NET any -> $HOME_NET any (msg:"Inbound cmd.exe URI"; flow:established,to_server; http.uri; content:"cmd.exe"; nocase; sid:100401; rev:1;)', label="Header plus flow")
+        st.markdown("#### Common mistake")
+        st.write("A rule can have the right content but still be weak if it matches every direction or the wrong side of the connection.")
+        st.markdown("#### Analyst workflow")
+        st.write("1. Identify source and destination from the traffic.")
+        st.write("2. Decide whether the behavior is inbound, outbound, or lateral.")
+        st.write("3. Use flow when the rule should inspect client-to-server or server-to-client traffic.")
+        st.write("4. Confirm the buffer belongs on the side of traffic being inspected.")
+        return
+
     if lesson_name == "Tuning":
         st.markdown("#### What this lesson teaches")
         st.write("Tuning means reducing false positives while keeping useful detection. The goal is not fewer alerts at all costs. The goal is better signal.")
@@ -3243,6 +3622,53 @@ Analyst readout:
         st.write("2. Check matched field, direction, asset role, alert volume, and repeated behavior.")
         st.write("3. Tune with scope and specificity first.")
         st.write("4. Use thresholds or detection_filter when the behavior is meaningful only at volume.")
+        return
+
+    if lesson_name == "SOC Triage Workflow":
+        st.markdown("#### What this lesson teaches")
+        st.write("A Suricata alert is a lead. Analysts need to validate it with evidence before escalating, tuning, or closing.")
+        st.markdown("#### Alert packet context")
+        render_pcap_box("""Alert:
+  signature: Possible cmd.exe in URI
+  src_ip: 198.51.100.44
+  dst_ip: 10.25.8.14
+  uri: /scripts/cmd.exe?/c+whoami
+  response_status: 404
+  count_10m: 1
+
+Open question:
+  Was this exploit attempt successful, benign scanning, or noise?""", label="Alert triage packet summary")
+        st.markdown("#### Evidence pivots")
+        render_lesson_code("""1. Web/proxy logs: URI, response status, user-agent, repeat attempts
+2. EDR/process logs: did the server spawn shell/process activity?
+3. DNS/proxy: did the host make follow-on outbound connections?
+4. Asset context: public server, scanner window, test activity, vulnerability exposure
+5. Case note: what is known, what is unknown, and recommended next action""", label="Triage checklist")
+        st.markdown("#### Analyst workflow")
+        st.write("1. Validate the matched field and timestamp.")
+        st.write("2. Check response and server-side evidence before declaring compromise.")
+        st.write("3. Decide: escalate, monitor, tune, or close as benign/testing.")
+        st.write("4. Write a short evidence-backed conclusion.")
+        return
+
+    if lesson_name == "Production Detection":
+        st.markdown("#### What this lesson teaches")
+        st.write("Production detection engineering balances coverage, precision, performance, and triage value.")
+        st.markdown("#### Production review questions")
+        render_lesson_code("""1. What behavior is this rule trying to detect?
+2. Which fields prove that behavior?
+3. What benign activity could match?
+4. Does this need exact content, multiple indicators, or rate logic?
+5. What evidence should an analyst pivot to after the alert?
+6. What risk remains after tuning?""", label="Detection review checklist")
+        st.markdown("#### Example: single event vs behavior")
+        render_lesson_code('alert tcp any any -> any any (msg:"SYN observed"; flags:S; sid:100501; rev:1;)', label="Too broad")
+        render_lesson_code('alert tcp $EXTERNAL_NET any -> $HOME_NET any (msg:"Possible inbound SYN scan"; flags:S; detection_filter:track by_src, count 20, seconds 60; sid:100502; rev:1;)', label="Behavioral threshold")
+        st.markdown("#### Analyst workflow")
+        st.write("1. Preserve the threat behavior while reducing generic matches.")
+        st.write("2. Add direction, buffers, and stronger indicators before suppressing.")
+        st.write("3. Use thresholding when repetition is the signal.")
+        st.write("4. Treat allowlists as risk decisions, not cleanup shortcuts.")
         return
 
     st.write(LESSONS.get(lesson_name, "No lesson text found."))
@@ -3331,6 +3757,76 @@ LESSON_CHECKS = {
             "why": "TLS SNI is the hostname field in the TLS handshake. HTTP Host is a different HTTP header.",
         },
     ],
+    "HTTP Fields": [
+        {
+            "title": "HTTP field mapping",
+            "scenario": "Traffic shows POST /login with Host: portal.example.internal and User-Agent: curl/8.0. Which mapping is strongest?",
+            "options": [
+                "http.method for POST, http.uri for /login, http.host for portal.example.internal, and http.user_agent for curl.",
+                "dns.query for /login and tls.sni for curl.",
+                "Raw content for every value because buffers do not matter.",
+                "Only sid and rev matter for HTTP rules.",
+            ],
+            "answer": 0,
+            "why": "Each HTTP value belongs to a specific field. Matching the right field makes the alert easier to explain and tune.",
+        },
+        {
+            "title": "Header scoping",
+            "scenario": "A rule wants to detect an Authorization/token-like header. Which starting point is most defensible?",
+            "options": [
+                "content:\"token\";",
+                "http.header; content:\"token\"; nocase;",
+                "dns.query; content:\"token\";",
+                "flags:S;",
+            ],
+            "answer": 1,
+            "why": "If the detection intent is a header value, scope the match to http.header instead of searching raw payload.",
+        },
+    ],
+    "DNS Detection": [
+        {
+            "title": "DNS query field",
+            "scenario": "You want to detect a lookup for bad-domain.example. Which buffer should be used?",
+            "options": ["dns.query", "http.uri", "http.user_agent", "tls.sni"],
+            "answer": 0,
+            "why": "dns.query is the queried domain name. It is the right field for DNS lookup detections.",
+        },
+        {
+            "title": "DNS tunneling context",
+            "scenario": "One long DNS label appears once from a workstation. What should the analyst do next?",
+            "options": [
+                "Treat it as confirmed DNS tunneling immediately.",
+                "Check frequency, source host context, domain reputation, and follow-on traffic.",
+                "Suppress every long DNS query.",
+                "Change the rule to HTTP.",
+            ],
+            "answer": 1,
+            "why": "Long labels can be suspicious, but behavioral context and pivots are needed before confident escalation or tuning.",
+        },
+    ],
+    "TLS and SNI": [
+        {
+            "title": "SNI vs Host",
+            "scenario": "A TLS rule uses http.host to inspect a ClientHello hostname. What is wrong?",
+            "options": [
+                "It should use tls.sni for TLS SNI hostname evidence.",
+                "It should use dns.query because all hostnames are DNS.",
+                "It should remove the protocol.",
+                "Nothing is wrong; http.host and tls.sni are identical.",
+            ],
+            "answer": 0,
+            "why": "tls.sni and http.host are different protocol fields. TLS hostname checks should use tls.sni.",
+        },
+    ],
+    "Flow and Direction": [
+        {
+            "title": "Request-side flow",
+            "scenario": "An HTTP URI rule should inspect client requests going to the server. Which flow option is usually appropriate?",
+            "options": ["flow:established,to_server", "flow:to_client", "flags:S", "dns.query"],
+            "answer": 0,
+            "why": "HTTP URI and method checks usually belong to established client-to-server request traffic.",
+        },
+    ],
     "Tuning": [
         {
             "title": "Noisy login rule",
@@ -3355,6 +3851,34 @@ LESSON_CHECKS = {
             ],
             "answer": 1,
             "why": "A single SYN is normal. Scan-like activity is usually about repeated behavior, rate, and source/destination spread.",
+        },
+    ],
+    "SOC Triage Workflow": [
+        {
+            "title": "Alert evidence",
+            "scenario": "A cmd.exe URI alert fires once and the server returns 404. What is the best next step?",
+            "options": [
+                "Declare compromise immediately.",
+                "Validate source, URI, response, server logs, EDR activity, and follow-on traffic.",
+                "Disable the rule permanently.",
+                "Ignore it because the response was 404.",
+            ],
+            "answer": 1,
+            "why": "The alert is suspicious but not a full conclusion. Evidence-backed pivots determine severity and next action.",
+        },
+    ],
+    "Production Detection": [
+        {
+            "title": "Production tuning",
+            "scenario": "A rule fires on every TCP SYN. What makes it more production-useful?",
+            "options": [
+                "Alert on every SYN forever.",
+                "Track repeated behavior by source over a time window and consider port/destination spread.",
+                "Remove sid and rev.",
+                "Use http.uri.",
+            ],
+            "answer": 1,
+            "why": "Scan behavior is usually repetition and spread, not one normal SYN packet.",
         },
     ],
 }
