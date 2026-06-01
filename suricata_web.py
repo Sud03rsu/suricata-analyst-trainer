@@ -7,7 +7,6 @@ from datetime import datetime
 from pathlib import Path
 
 import streamlit as st
-import streamlit.components.v1 as components
 
 # ------------------------------------------------------------
 # Suricata Analyst Trainer
@@ -1104,7 +1103,7 @@ def scroll_to_top_once():
         return
 
     nonce = st.session_state.get("_scroll_to_top_nonce", 0)
-    components.html(
+    st.iframe(
         f"""
         <script>
         (function() {{
@@ -1152,14 +1151,9 @@ def scroll_to_top_once():
         }})();
         </script>
         """,
-        height=0,
+        height=1,
+        tab_index=-1,
     )
-
-
-def rerun_top():
-    """Navigate/rerun and force the next page to start at the top."""
-    request_scroll_to_top()
-    st.rerun()
 
 
 def rerun_top():
@@ -2452,10 +2446,6 @@ def record_attempt(q, ok, skipped=False):
     save_web_progress()
 
 
-def progress_download_blob():
-    return json.dumps(get_progress(), indent=2)
-
-
 def completed_lessons():
     progress = get_progress()
     progress.setdefault("web", {}).setdefault("lessons_completed", [])
@@ -2478,9 +2468,12 @@ def set_training_module(module_name, view="Train", lesson_context=None):
     request_scroll_to_top()
     st.session_state.bank_name = module_name
     st.session_state.view = view
+    st.session_state._pending_module_picker = module_name
+    st.session_state._pending_view_picker = view
     if lesson_context:
         st.session_state.return_lesson = lesson_context
         st.session_state.selected_lesson = lesson_context
+        st.session_state._pending_lesson_picker = lesson_context
     reset_current_question()
 
 
@@ -2545,12 +2538,15 @@ def render_recovery_nav(context: str = ""):
         if st.button("Return to Previous Section", key=f"recovery_prev_{context}", use_container_width=True):
             target = st.session_state.get("previous_view", "Lessons")
             st.session_state.view = target if target in ["Return to Main Menu", "Train", "Lessons", "Glossary", "Progress", "Feedback"] else "Lessons"
+            st.session_state._pending_view_picker = st.session_state.view
             rerun_top()
     with nav_cols[1]:
         if st.button("Continue Current Lesson", key=f"recovery_lesson_{context}", use_container_width=True):
             st.session_state.view = "Lessons"
+            st.session_state._pending_view_picker = "Lessons"
             if st.session_state.get("return_lesson"):
                 st.session_state.selected_lesson = st.session_state.return_lesson
+                st.session_state._pending_lesson_picker = st.session_state.return_lesson
             rerun_top()
 def grade_lab_task(task, value):
     """Score a structured lab task. Returns (ok, message)."""
@@ -3458,6 +3454,31 @@ if "lab_results" not in st.session_state:
 if "question" not in st.session_state:
     reset_current_question()
 
+VIEW_OPTIONS = ["Return to Main Menu", "Train", "Lessons", "Glossary", "Progress", "Feedback"]
+MODULE_OPTIONS = list(BASE_BANKS.keys()) + ["Review Missed / Remediation"]
+
+if st.session_state.view not in VIEW_OPTIONS:
+    st.session_state.view = "Return to Main Menu"
+if st.session_state.bank_name not in MODULE_OPTIONS:
+    st.session_state.bank_name = "Adaptive Mixed"
+if LESSON_ORDER and st.session_state.selected_lesson not in LESSON_ORDER:
+    st.session_state.selected_lesson = LESSON_ORDER[0]
+
+for pending_key, widget_key in [
+    ("_pending_view_picker", "view_picker"),
+    ("_pending_module_picker", "module_picker"),
+    ("_pending_lesson_picker", "lesson_picker"),
+]:
+    if pending_key in st.session_state:
+        st.session_state[widget_key] = st.session_state.pop(pending_key)
+
+if "view_picker" not in st.session_state or st.session_state.view_picker not in VIEW_OPTIONS:
+    st.session_state.view_picker = st.session_state.view
+if "module_picker" not in st.session_state or st.session_state.module_picker not in MODULE_OPTIONS:
+    st.session_state.module_picker = st.session_state.bank_name
+if "lesson_picker" not in st.session_state or st.session_state.lesson_picker not in LESSON_ORDER:
+    st.session_state.lesson_picker = st.session_state.selected_lesson
+
 progress = get_progress()
 summary = global_summary(progress)
 
@@ -3476,8 +3497,8 @@ with st.sidebar:
 
     view = st.radio(
         "Navigation",
-        ["Return to Main Menu", "Train", "Lessons", "Glossary", "Progress", "Feedback"],
-        index=["Return to Main Menu", "Train", "Lessons", "Glossary", "Progress", "Feedback"].index(st.session_state.view),
+        VIEW_OPTIONS,
+        key="view_picker",
     )
     if view != st.session_state.view:
         st.session_state.previous_view = st.session_state.view
@@ -3486,11 +3507,10 @@ with st.sidebar:
 
     st.markdown("---")
     st.markdown("### Module")
-    module_options = list(BASE_BANKS.keys()) + ["Review Missed / Remediation"]
     selected_bank = st.selectbox(
         "Choose module",
-        module_options,
-        index=module_options.index(st.session_state.bank_name) if st.session_state.bank_name in module_options else 0,
+        MODULE_OPTIONS,
+        key="module_picker",
     )
 
     difficulty_filter = st.selectbox(
@@ -3543,6 +3563,7 @@ with st.sidebar:
 
     if st.button("Start Module Practice", use_container_width=True):
         st.session_state.view = "Train"
+        st.session_state._pending_view_picker = "Train"
         reset_current_question()
         rerun_top()
 
@@ -3617,6 +3638,8 @@ if st.session_state.view == "Return to Main Menu":
             if st.button(f"Open Lesson {idx + 1}", key=f"open_lesson_{lesson}", use_container_width=True):
                 st.session_state.selected_lesson = lesson
                 st.session_state.view = "Lessons"
+                st.session_state._pending_lesson_picker = lesson
+                st.session_state._pending_view_picker = "Lessons"
                 rerun_top()
 
     st.markdown("### Practice flow")
@@ -3789,8 +3812,7 @@ elif st.session_state.view == "Lessons":
     lesson_name = st.selectbox(
         "Choose a lesson",
         LESSON_ORDER,
-        index=LESSON_ORDER.index(st.session_state.selected_lesson) if st.session_state.selected_lesson in LESSON_ORDER else 0,
-        key="lesson_selector",
+        key="lesson_picker",
     )
     if lesson_name != st.session_state.selected_lesson:
         st.session_state.selected_lesson = lesson_name
@@ -3881,6 +3903,7 @@ elif st.session_state.view == "Lessons":
         next_lesson = LESSON_ORDER[(idx + 1) % len(LESSON_ORDER)]
         if st.button(f"Next Lesson: {next_lesson}", use_container_width=True):
             st.session_state.selected_lesson = next_lesson
+            st.session_state._pending_lesson_picker = next_lesson
             rerun_top()
 
 elif st.session_state.view == "Glossary":
@@ -3895,7 +3918,7 @@ elif st.session_state.view == "Glossary":
 
 elif st.session_state.view == "Progress":
     st.subheader("Progress / Remediation")
-    st.write("Progress is saved for the running app session and also written to a local file when the environment allows it. Use  before closing if you want a portable copy.")
+    st.write("Progress is saved for the running app session and also written to a local file when the environment allows it.")
     st.info("Remediation shows skipped or incorrect questions. You can start review anytime; you are never forced to stay on a question until it is correct.")
 
     col1, col2, col3, col4 = st.columns(4)
@@ -3922,12 +3945,15 @@ elif st.session_state.view == "Progress":
         with nav_cols[0]:
             if st.button("Continue Lesson", key="empty_missed_continue_lesson", use_container_width=True):
                 st.session_state.view = "Lessons"
+                st.session_state._pending_view_picker = "Lessons"
                 rerun_top()
         with nav_cols[1]:
             if st.button("Start Related Practice", key="empty_missed_start_practice", use_container_width=True):
                 st.session_state.view = "Train"
+                st.session_state._pending_view_picker = "Train"
                 if st.session_state.bank_name == "Review Missed / Remediation":
                     st.session_state.bank_name = "Adaptive Mixed"
+                    st.session_state._pending_module_picker = "Adaptive Mixed"
                 reset_current_question()
                 rerun_top()
     else:
@@ -3940,6 +3966,8 @@ elif st.session_state.view == "Progress":
         if st.button("Start Review Missed / Remediation", type="primary"):
             st.session_state.bank_name = "Review Missed / Remediation"
             st.session_state.view = "Train"
+            st.session_state._pending_module_picker = "Review Missed / Remediation"
+            st.session_state._pending_view_picker = "Train"
             reset_current_question()
             rerun_top()
 
@@ -3953,7 +3981,7 @@ elif st.session_state.view == "Progress":
 
 elif st.session_state.view == "Feedback":
     st.subheader("Training Preview Feedback")
-    st.write("Use this to collect learner feedback before sharing the trainer more broadly. You can download a copy for your notes.")
+    st.write("Use this to collect learner feedback before sharing the trainer more broadly.")
 
     usefulness = st.slider("How useful does this feel as a learning tool?", 1, 5, 4)
     realism = st.slider("How realistic are the scenarios/rules?", 1, 5, 3)
@@ -3962,16 +3990,3 @@ elif st.session_state.view == "Feedback":
     missing = st.text_area("What feels missing?", height=90)
     advanced = st.text_area("What would make the advanced/production-style content better?", height=90)
     would_use = st.radio("Would you use this again or recommend it to a junior analyst?", ["Yes", "Maybe", "No"], horizontal=True)
-
-    feedback_blob = {
-        "time": datetime.now().isoformat(timespec="seconds"),
-        "app_version": APP_VERSION,
-        "usefulness": usefulness,
-        "realism": realism,
-        "clarity": clarity,
-        "confusing": confusing,
-        "missing": missing,
-        "advanced_content_feedback": advanced,
-        "would_use_again": would_use,
-        "summary_at_feedback": global_summary(get_progress()),
-    }
